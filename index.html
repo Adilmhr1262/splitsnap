@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SplitSnap - Split Bills Without the Drama</title>
+<meta name="description" content="SplitSnap splits a shared bill equally or by custom amounts, with tip and extra charges, and saves past bills in your browser.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+      </span>
+      <div>
+        <strong>SplitSnap</strong>
+        <span>Split bills without the drama</span>
+      </div>
+    </div>
+    <button id="themeToggle" type="button" aria-pressed="false" aria-label="Switch to dark theme">Dark mode</button>
+  </div>
+</header>
+
+<main>
+  <nav class="tabs" role="tablist" aria-label="SplitSnap sections">
+    <button type="button" role="tab" id="tab-split" aria-selected="true" aria-controls="panel-split" data-tab="split">Split Bill</button>
+    <button type="button" role="tab" id="tab-history" aria-selected="false" aria-controls="panel-history" data-tab="history">History</button>
+    <button type="button" role="tab" id="tab-about" aria-selected="false" aria-controls="panel-about" data-tab="about">About</button>
+  </nav>
+
+  <section id="panel-split" role="tabpanel" aria-labelledby="tab-split">
+    <div class="grid">
+      <form id="billForm" class="card" novalidate>
+        <h1>Split a bill</h1>
+        <p class="lede">Enter the bill, pick how to split it, and get each person's share in seconds.</p>
+
+        <div class="field">
+          <label for="billName">Bill name</label>
+          <input id="billName" name="billName" type="text" maxlength="80" placeholder="Dinner at Karachi Foods" autocomplete="off">
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="billAmount">Bill amount (subtotal)</label>
+            <input id="billAmount" name="billAmount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="3000" required>
+          </div>
+          <div class="field">
+            <label for="currency">Currency</label>
+            <select id="currency" name="currency">
+              <option value="PKR" selected>PKR - Pakistani Rupee</option>
+              <option value="USD">USD - US Dollar</option>
+              <option value="EUR">EUR - Euro</option>
+              <option value="GBP">GBP - British Pound</option>
+              <option value="INR">INR - Indian Rupee</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="peopleCount">Number of people (2 to 20)</label>
+            <input id="peopleCount" name="peopleCount" type="number" min="2" max="20" step="1" value="3" required>
+          </div>
+          <div class="field">
+            <label for="tipPct">Tip (%)</label>
+            <input id="tipPct" name="tipPct" type="number" inputmode="decimal" min="0" max="100" step="0.01" value="0">
+          </div>
+          <div class="field">
+            <label for="extraCharge">Extra charges (fixed)</label>
+            <input id="extraCharge" name="extraCharge" type="number" inputmode="decimal" min="0" step="0.01" value="0">
+          </div>
+        </div>
+
+        <fieldset class="mode-fieldset">
+          <legend>Split mode</legend>
+          <label class="radio"><input type="radio" name="mode" value="equal" checked> Equal split</label>
+          <label class="radio"><input type="radio" name="mode" value="custom"> Custom split</label>
+          <p class="hint" id="modeHint">Everyone pays the same share of the bill, tip, and extra charges.</p>
+        </fieldset>
+
+        <div class="field">
+          <span class="label-like" id="peopleLabel">People</span>
+          <div id="peopleEditor" aria-labelledby="peopleLabel"></div>
+          <p class="hint" id="customSumLine" hidden></p>
+        </div>
+
+        <div id="formError" class="alert alert-error" role="alert" hidden></div>
+
+        <button type="submit" class="btn-primary">Calculate shares</button>
+      </form>
+
+      <div class="card results-card">
+        <h2>Results</h2>
+        <div id="emptyResults">
+          <p>Your results will appear here once you calculate a bill.</p>
+          <p class="hint">Try it: 3000, 10% tip, 150 extra, 3 people. Grand total 3450, 1150 each.</p>
+        </div>
+        <div id="results" hidden>
+          <dl class="totals">
+            <div><dt>Subtotal</dt><dd id="resSubtotal"></dd></div>
+            <div><dt>Tip</dt><dd id="resTip"></dd></div>
+            <div><dt>Extra charges</dt><dd id="resExtra"></dd></div>
+            <div class="grand"><dt>Grand total</dt><dd id="resGrand"></dd></div>
+          </dl>
+          <ol id="shareList" class="share-list"></ol>
+          <p id="sumCheck" class="hint" aria-live="polite"></p>
+          <div class="actions">
+            <button type="button" id="copyBtn" class="btn-primary">Copy summary</button>
+            <button type="button" id="saveBtn" class="btn-secondary">Save to history</button>
+          </div>
+          <p id="actionMsg" class="hint" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="panel-history" role="tabpanel" aria-labelledby="tab-history" hidden>
+    <div class="card">
+      <div class="section-head">
+        <div>
+          <h2>Saved bills</h2>
+          <p class="lede">Saved only in this browser. Nothing leaves your device.</p>
+        </div>
+        <button type="button" id="clearAllBtn" class="btn-danger">Clear all</button>
+      </div>
+      <p id="historyMsg" class="hint" aria-live="polite"></p>
+      <ul id="historyList" class="history-list"></ul>
+      <div id="emptyHistory">
+        <p>No saved bills yet.</p>
+        <p class="hint">Calculate a bill on the Split Bill tab, then press Save to history.</p>
+      </div>
+    </div>
+  </section>
+
+  <section id="panel-about" role="tabpanel" aria-labelledby="tab-about" hidden>
+    <div class="card about-card">
+      <h2>About SplitSnap</h2>
+      <p>SplitSnap splits one shared bill between friends, family, or colleagues. It works for a meal, a trip, or any shared purchase.</p>
+      <h3>How to use it</h3>
+      <ol>
+        <li>Enter the bill amount, currency, and number of people.</li>
+        <li>Pick Equal split, or Custom split and type each person's base amount.</li>
+        <li>Add a tip percentage and any fixed extra charges if needed.</li>
+        <li>Press Calculate shares, then Copy summary to share the result, or Save to history to keep it.</li>
+      </ol>
+      <h3>How the maths works</h3>
+      <p>All amounts are worked out in whole minor units (for example, paisa or cents). Tip is a percentage of the subtotal. In Custom mode, tip and extra charges are shared in proportion to each person's base amount. In Equal mode, they are shared evenly. Any leftover minor units from rounding are handed out one at a time, starting with the largest remainders, so the shares shown always add up exactly to the grand total.</p>
+      <h3>Privacy</h3>
+      <p>Your bills are stored only in this browser's local storage. There is no account, no server, and no tracking. Clearing your browser data removes your saved bills.</p>
+      <h3>What SplitSnap does not do</h3>
+      <p>It does not take payments, track expenses over time, send notifications, or sync to the cloud. It splits one bill at a time, and does that one job well.</p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <p>SplitSnap: your data stays in your browser.</p>
+</footer>
+
+<script src="script.js"></script>
+</body>
+</html>

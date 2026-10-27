@@ -28,6 +28,7 @@
   var copyBtn = document.getElementById("copyBtn");
   var saveBtn = document.getElementById("saveBtn");
   var actionMsg = document.getElementById("actionMsg");
+  var staleNote = document.getElementById("staleNote");
   var historyList = document.getElementById("historyList");
   var emptyHistory = document.getElementById("emptyHistory");
   var historyMsg = document.getElementById("historyMsg");
@@ -46,22 +47,52 @@
     catch (e) { storageOK = false; return false; }
   }
   function storeRemove(key) {
-    try { window.localStorage.removeItem(key); } catch (e) { storageOK = false; }
+    try { window.localStorage.removeItem(key); return true; }
+    catch (e) { storageOK = false; return false; }
   }
 
   function formatMoney(cents, code) {
-    var value = cents / 100;
-    var num = value.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    return code + " " + num;
+    return formatMoneyBig(BigInt(cents), code);
   }
+
+  var MAX_SAFE_CENTS = BigInt(Number.MAX_SAFE_INTEGER);
 
   function parseMoneyToCents(text) {
     if (text === null || text === undefined) return null;
     var t = String(text).trim();
-    if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
-    var cents = Math.round(parseFloat(t) * 100);
-    if (!isFinite(cents) || cents < 0) return null;
-    return cents;
+    var m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(t);
+    if (!m) return null;
+    var frac = (m[2] || "").padEnd(2, "0");
+    var centsBig;
+    try { centsBig = BigInt(m[1]) * 100n + BigInt(frac); } catch (e) { return null; }
+    if (centsBig > MAX_SAFE_CENTS) return null;
+    return Number(centsBig);
+  }
+
+  function formatMoneyBig(centsBig, code) {
+    var intPart = (centsBig / 100n).toString();
+    var fracPart = (centsBig % 100n).toString().padStart(2, "0");
+    var grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    return code + " " + grouped + "." + fracPart;
+  }
+
+  function parseTipFraction(text) {
+    var t = String(text).trim();
+    var m = /^(\d+)(?:\.(\d+))?$/.exec(t);
+    if (!m) return null;
+    var den = 10n ** BigInt((m[2] || "").length);
+    var num = BigInt(m[1]) * den + BigInt(m[2] || "0");
+    if (num > 100n * den) return null;
+    return { num: num, den: den };
+  }
+
+  function invalidateResults() {
+    if (!currentResult) return;
+    currentResult = null;
+    resultsBox.hidden = true;
+    emptyResults.hidden = false;
+    staleNote.hidden = false;
+    actionMsg.textContent = "";
   }
 
   function showError(message, field) {
@@ -144,24 +175,24 @@
   function updateCustomSumLine() {
     if (getMode() !== "custom") { customSumLine.hidden = true; return; }
     syncPeopleData();
-    var sum = 0;
+    var sumBig = 0n;
     var allValid = true;
     peopleData.forEach(function (p) {
       if (p.amount === "" || p.amount === null) { allValid = false; return; }
       var c = parseMoneyToCents(p.amount);
       if (c === null) { allValid = false; return; }
-      sum += c;
+      sumBig += BigInt(c);
     });
     var subtotal = parseMoneyToCents(billAmountInput.value);
     customSumLine.hidden = false;
     if (!allValid) {
       customSumLine.textContent = "Enter a base amount for every person. The base amounts must add up to the bill subtotal.";
     } else if (subtotal === null) {
-      customSumLine.textContent = "Custom base amounts total " + formatMoney(sum, currencySelect.value) + ". Enter the bill subtotal to check the match.";
-    } else if (sum === subtotal) {
-      customSumLine.textContent = "Custom base amounts total " + formatMoney(sum, currencySelect.value) + ", matching the subtotal.";
+      customSumLine.textContent = "Custom base amounts total " + formatMoneyBig(sumBig, currencySelect.value) + ". Enter the bill subtotal to check the match.";
+    } else if (sumBig === BigInt(subtotal)) {
+      customSumLine.textContent = "Custom base amounts total " + formatMoneyBig(sumBig, currencySelect.value) + ", matching the subtotal.";
     } else {
-      customSumLine.textContent = "Custom base amounts total " + formatMoney(sum, currencySelect.value) + ", but the subtotal is " + formatMoney(subtotal, currencySelect.value) + ". Adjust the base amounts so they match.";
+      customSumLine.textContent = "Custom base amounts total " + formatMoneyBig(sumBig, currencySelect.value) + ", but the subtotal is " + formatMoney(subtotal, currencySelect.value) + ". Adjust the base amounts so they match.";
     }
   }
 
@@ -241,6 +272,7 @@
 
   function doCalculate() {
     clearError();
+    staleNote.hidden = true;
     actionMsg.textContent = "";
     var billName = billNameInput.value.trim();
     var subtotal = parseMoneyToCents(billAmountInput.value);
@@ -255,7 +287,8 @@
     }
     var tipText = tipInput.value.trim();
     var tipPct = tipText === "" ? 0 : parseFloat(tipText);
-    if (isNaN(tipPct) || tipPct < 0 || tipPct > 100) {
+    var tipFrac = tipText === "" ? { num: 0n, den: 1n } : parseTipFraction(tipText);
+    if (tipFrac === null || isNaN(tipPct) || tipPct < 0 || tipPct > 100) {
       showError("Tip must be a percentage from 0 to 100.", tipInput);
       return null;
     }
@@ -287,39 +320,50 @@
       }
     }
     if (mode === "custom") {
-      var sumBases = bases.reduce(function (a, b) { return a + b; }, 0);
-      if (sumBases !== subtotal) {
-        showError("Custom base amounts total " + formatMoney(sumBases, currencySelect.value) + ", but the subtotal is " + formatMoney(subtotal, currencySelect.value) + ". Adjust the base amounts so they match.", null);
+      var sumBasesBig = bases.reduce(function (a, b) { return a + BigInt(b); }, 0n);
+      if (sumBasesBig !== BigInt(subtotal)) {
+        showError("Custom base amounts total " + formatMoneyBig(sumBasesBig, currencySelect.value) + ", but the subtotal is " + formatMoney(subtotal, currencySelect.value) + ". Adjust the base amounts so they match.", null);
         return null;
       }
     }
 
-    var tipCents = Math.round(subtotal * tipPct / 100);
-    var grand = subtotal + tipCents + extra;
-    var totalWeight = mode === "custom"
-      ? bases.reduce(function (a, b) { return a + b; }, 0)
-      : count;
+    var tipNum = BigInt(subtotal) * tipFrac.num;
+    var tipDen = tipFrac.den * 100n;
+    var tipQuot = tipNum / tipDen;
+    var tipRem = tipNum % tipDen;
+    if (2n * tipRem >= tipDen) tipQuot += 1n;
+    var tipCents = Number(tipQuot);
+    var grandBig = BigInt(subtotal) + tipQuot + BigInt(extra);
+    if (grandBig > MAX_SAFE_CENTS) {
+      showError("Amounts are too large to calculate exactly. Reduce the bill amount, tip, or extra charges.", billAmountInput);
+      return null;
+    }
+    var grand = Number(grandBig);
+    var totalWeightBig = mode === "custom"
+      ? bases.reduce(function (a, b) { return a + BigInt(b); }, 0n)
+      : BigInt(count);
 
     var floors = [];
     var remainders = [];
-    var floorSum = 0;
+    var floorSumBig = 0n;
     for (var j = 0; j < count; j++) {
-      var weight = mode === "custom" ? bases[j] : 1;
-      var raw = grand * weight / totalWeight;
-      var fl = Math.floor(raw);
-      floors.push(fl);
-      remainders.push(raw - fl);
-      floorSum += fl;
+      var weightBig = mode === "custom" ? BigInt(bases[j]) : 1n;
+      var prod = grandBig * weightBig;
+      var flBig = prod / totalWeightBig;
+      floors.push(Number(flBig));
+      remainders.push(prod % totalWeightBig);
+      floorSumBig += flBig;
     }
-    var leftover = grand - floorSum;
+    var leftover = Number(grandBig - floorSumBig);
     var order = [];
     for (var k = 0; k < count; k++) order.push(k);
     order.sort(function (a, b) {
-      if (remainders[b] !== remainders[a]) return remainders[b] - remainders[a];
+      if (remainders[a] > remainders[b]) return -1;
+      if (remainders[a] < remainders[b]) return 1;
       return a - b;
     });
     var shares = floors.slice();
-    for (var m = 0; m < leftover; m++) shares[order[m % count]] += 1;
+    for (var m = 0; m < leftover; m++) shares[order[m]] += 1;
 
     var people = names.map(function (name, idx) {
       return { name: name, baseCents: mode === "custom" ? bases[idx] : null, shareCents: shares[idx] };
@@ -342,6 +386,7 @@
   }
 
   function renderResults(result) {
+    staleNote.hidden = true;
     resSubtotal.textContent = formatMoney(result.subtotalCents, result.currency);
     resTip.textContent = formatMoney(result.tipCents, result.currency) + (result.tipPct ? " (" + result.tipPct + "%)" : "");
     resExtra.textContent = formatMoney(result.extraCents, result.currency);
@@ -467,14 +512,21 @@
   form.addEventListener("submit", function (e) { e.preventDefault(); doCalculate(); });
   peopleCountInput.addEventListener("change", renderPeople);
   peopleCountInput.addEventListener("input", renderPeople);
+  peopleCountInput.addEventListener("input", invalidateResults);
   billAmountInput.addEventListener("input", updateCustomSumLine);
+  billAmountInput.addEventListener("input", invalidateResults);
+  tipInput.addEventListener("input", invalidateResults);
+  extraInput.addEventListener("input", invalidateResults);
   peopleEditor.addEventListener("input", updateCustomSumLine);
+  peopleEditor.addEventListener("input", invalidateResults);
   form.querySelectorAll('input[name="mode"]').forEach(function (r) {
     r.addEventListener("change", updateModeUI);
+    r.addEventListener("change", invalidateResults);
   });
   currencySelect.addEventListener("change", function () {
     storeSet(CURRENCY_KEY, currencySelect.value);
     updateCustomSumLine();
+    invalidateResults();
   });
   copyBtn.addEventListener("click", copySummary);
   saveBtn.addEventListener("click", saveCurrent);
@@ -491,8 +543,11 @@
     clearTimeout(clearTimer);
     clearArmed = false;
     clearAllBtn.textContent = "Clear all";
-    storeRemove(HISTORY_KEY);
-    historyMsg.textContent = "All saved bills cleared.";
+    if (storeRemove(HISTORY_KEY)) {
+      historyMsg.textContent = "All saved bills cleared.";
+    } else {
+      historyMsg.textContent = "Could not clear saved bills: this browser blocked storage.";
+    }
     renderHistory();
   });
 

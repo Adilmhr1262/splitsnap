@@ -69,6 +69,11 @@
     return Number(centsBig);
   }
 
+  function centsToInput(cents) {
+    var value = BigInt(cents);
+    return (value / 100n).toString() + "." + (value % 100n).toString().padStart(2, "0");
+  }
+
   function formatMoneyBig(centsBig, code) {
     var intPart = (centsBig / 100n).toString();
     var fracPart = (centsBig % 100n).toString().padStart(2, "0");
@@ -465,17 +470,17 @@
 
   function reopenBill(item) {
     billNameInput.value = item.billName === "Untitled bill" ? "" : item.billName;
-    billAmountInput.value = (item.subtotalCents / 100).toFixed(2);
+    billAmountInput.value = centsToInput(item.subtotalCents);
     currencySelect.value = CURRENCIES.indexOf(item.currency) >= 0 ? item.currency : "PKR";
     peopleCountInput.value = item.people.length;
     tipInput.value = item.tipPct || 0;
-    extraInput.value = (item.extraCents / 100).toFixed(2);
+    extraInput.value = centsToInput(item.extraCents);
     var radio = form.querySelector('input[name="mode"][value="' + item.mode + '"]');
     if (radio) radio.checked = true;
     peopleData = item.people.map(function (p) {
       return {
         name: /^Person \d+$/.test(p.name) ? "" : p.name,
-        amount: p.baseCents === null || p.baseCents === undefined ? "" : (p.baseCents / 100).toFixed(2)
+        amount: p.baseCents === null || p.baseCents === undefined ? "" : centsToInput(p.baseCents)
       };
     });
     updateModeUI();
